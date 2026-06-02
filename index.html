@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Audio Reactor</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@300;400;600;700&family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+  <!-- p5.js desde CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/addons/p5.sound.min.js"></script>
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <!-- Fondo dinámico que cambia de color según la canción -->
+  <div id="bg-blur"></div>
+
+  <!-- Contenedor principal -->
+  <main class="stage">
+
+    <!-- Carrusel de tarjetas -->
+    <section class="carousel" id="carousel">
+
+      <!-- ─── CANCIÓN 1: KISS ─── -->
+      <div class="card" data-index="0" data-song="kiss">
+        <div class="card-inner">
+          <img class="card-art" src="img/kiss.jpg" alt="Kiss - I Was Made For Lovin' You" />
+          <canvas class="card-canvas" id="canvas-0"></canvas>
+          <div class="card-overlay">
+            <p class="card-title">I Was Made For Lovin' You</p>
+            <p class="card-artist">KISS</p>
+          </div>
+          <div class="hold-hint">
+            <span class="hold-icon">▶</span>
+            <span>Mantén para reproducir</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── CANCIÓN 2: LOCOS ─── -->
+      <div class="card" data-index="1" data-song="leon">
+        <div class="card-inner">
+          <img class="card-art" src="img/leon.jpg" alt="León Larregui - Locos" />
+          <canvas class="card-canvas" id="canvas-1"></canvas>
+          <div class="card-overlay">
+            <p class="card-title">Locos</p>
+            <p class="card-artist">León Larregui</p>
+          </div>
+          <div class="hold-hint">
+            <span class="hold-icon">▶</span>
+            <span>Mantén para reproducir</span>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- Barra de navegación inferior tipo Apple Music -->
+    <nav class="player-bar" id="player-bar">
+      <button class="nav-btn" id="btn-prev" title="Anterior">&#9194;</button>
+      <button class="nav-btn" id="btn-play" title="Play/Pause">&#9654;</button>
+      <button class="nav-btn" id="btn-next" title="Siguiente">&#9193;</button>
+
+      <div class="now-playing" id="now-playing">
+        <img class="np-thumb" id="np-thumb" src="img/kiss.jpg" alt="portada" />
+        <div class="np-info">
+          <span class="np-title" id="np-title">I Was Made For Lovin' You</span>
+          <span class="np-artist" id="np-artist">KISS</span>
+        </div>
+      </div>
+
+      <div class="nav-dots">
+        <span class="dot active" data-dot="0"></span>
+        <span class="dot" data-dot="1"></span>
+      </div>
+
+      <div class="volume-wrap">
+        <span>🔈</span>
+        <input type="range" id="volume-slider" min="0" max="1" step="0.01" value="0.8" />
+        <span>🔊</span>
+      </div>
+    </nav>
+
+  </main>
+
+  <!-- JS Principal -->
+  <script src="js/AudioEngine.js"></script>
+  <script src="js/visualizers/BarsVisualizer.js"></script>
+  <script src="js/visualizers/WaveVisualizer.js"></script>
+  <script src="js/Navigator.js"></script>
+  <script src="js/main.js"></script>
+
+</body>
+</html>
