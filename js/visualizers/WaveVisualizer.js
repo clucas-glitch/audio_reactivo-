@@ -1,39 +1,34 @@
 /**
- * WaveVisualizer.js
- * Visualizador de onda circular + partículas — tema León / Locos (teal / morado).
- * Se dibuja sobre el <canvas> de la tarjeta.
+ * WaveVisualizer.js v3 — León Larregui / Locos
+ * Partículas que CAEN desde arriba en toda la pantalla.
+ * Tamaño y velocidad reaccionan a la frecuencia.
+ * Se detienen/desvanecen al pausar o cambiar canción.
  */
 
 class WaveVisualizer {
-  /**
-   * @param {HTMLCanvasElement} canvas
-   * @param {AudioEngine}       engine
-   */
   constructor(canvas, engine) {
-    this.canvas = canvas;
-    this.ctx2d  = canvas.getContext('2d');
-    this.engine = engine;
+    this.canvas  = canvas;
+    this.ctx2d   = canvas.getContext('2d');
+    this.engine  = engine;
     this.running = false;
     this.raf     = null;
     this.tick    = 0;
+    this.fading  = false;   // true cuando está en pausa o stop
+    this.globalAlpha = 1;
 
-    // Partículas flotantes
     this.particles = [];
-
-    // Colores tema LOCOS
-    this.colors = {
-      wave1: '#4ecdc4',
-      wave2: '#a29bfe',
-      glow1: 'rgba(78,205,196,0.5)',
-      glow2: 'rgba(162,155,254,0.4)',
-      part:  ['#4ecdc4','#a29bfe','#f8c8ff','#74b9ff'],
-    };
+   this.maxParticles =
+  window.innerWidth < 768
+    ? 180
+    : 320;
   }
 
   start() {
-    this.running = true;
+    this.running     = true;
+    this.fading      = false;
+    this.globalAlpha = 1;
     this._resize();
-    this._initParticles();
+    this._spawnInitial();
     this._loop();
   }
 
@@ -41,7 +36,25 @@ class WaveVisualizer {
     this.running = false;
     if (this.raf) cancelAnimationFrame(this.raf);
     this.raf = null;
-    this._clear();
+    // Fade out rápido y limpiar
+    this._fadeOut();
+  }
+
+  _fadeOut() {
+    this.fading = true;
+    this.globalAlpha = 1;
+    const fade = () => {
+      this.globalAlpha -= 0.06;
+      if (this.globalAlpha <= 0) {
+        this.ctx2d.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        this.fading = false;
+        this.particles = [];
+        return;
+      }
+      this._drawParticles(this.globalAlpha);
+      requestAnimationFrame(fade);
+    };
+    fade();
   }
 
   _resize() {
@@ -50,144 +63,172 @@ class WaveVisualizer {
     this.canvas.height = rect.height || 380;
   }
 
-  _clear() {
-    this.ctx2d.clearRect(0, 0, this.canvas.width, this.canvas.height);
+  /* ── Crea partículas iniciales distribuidas en toda la parte superior ── */
+  _spawnInitial() {
+    const W = this.canvas.width;
+    this.particles = [];
+    for (let i = 0; i < this.maxParticles; i++) {
+      this.particles.push(this._newParticle(
+        Math.random() * W,
+        -Math.random() * this.canvas.height  // esparcidas fuera de pantalla arriba
+      ));
+    }
   }
 
-  /* ── Inicializa partículas ── */
-  _initParticles() {
-    this.particles = [];
-    const W = this.canvas.width;
-    const H = this.canvas.height;
-    for (let i = 0; i < 30; i++) {
-      this.particles.push({
-        x:  Math.random() * W,
-        y:  Math.random() * H,
-        r:  Math.random() * 2.5 + 0.5,
-        vx: (Math.random() - 0.5) * 0.4,
-        vy: -Math.random() * 0.6 - 0.2,
-        alpha: Math.random(),
-        color: this.colors.part[Math.floor(Math.random() * this.colors.part.length)],
-      });
-    }
+  _newParticle(x, y) {
+    return {
+      x:     x !== undefined ? x : Math.random() * (this.canvas.width || 310),
+      y:     y !== undefined ? y : -Math.random() * 20,
+      vx:    (Math.random() - 0.5) * 0.15,
+      vy:    Math.random() * 0.6 + 0.2,     // velocidad de caída base
+r: Math.random() * 4 + 3,
+baseR: Math.random() * 4 + 3,
+      alpha: Math.random() * 0.4 + 0.8,
+      // Qué frecuencia la controla (distribuida por posición X)
+      freqBin: 0,
+      bright: 0,
+      // Variación de color: azul frío, azul eléctrico, blanco
+      hue: 190 + Math.random() * 40,
+    };
   }
 
   _loop() {
     if (!this.running) return;
     this.tick++;
-    this._draw();
+    this._update();
+    this._drawParticles(1);
     this.raf = requestAnimationFrame(() => this._loop());
   }
 
-  _draw() {
-    const { ctx2d, canvas, engine, colors, tick } = this;
-    const W  = canvas.width;
-    const H  = canvas.height;
-    const CX = W / 2;
-    const CY = H / 2;
+  _update() {
+    const W         = this.canvas.width;
+    const H         = this.canvas.height;
+    const freq      = this.engine.getFrequencies();
+    const amplitude = this.engine.getAmplitude();
+    const t         = this.tick * 0.018;
 
-    this._clear();
-
-    const freqData  = engine.getFrequencies();
-    const waveData  = engine.getWaveform();
-    const amplitude = engine.getAmplitude();
-    const len       = waveData.length;
-
-    /* ── 1. Onda circular principal ── */
-    const baseR = Math.min(W, H) * 0.28;
-
-    for (let pass = 0; pass < 2; pass++) {
-      const offset = pass === 0 ? 0 : Math.PI / len;
-      const colorA = pass === 0 ? colors.wave1 : colors.wave2;
-      const glowA  = pass === 0 ? colors.glow1 : colors.glow2;
-
-      ctx2d.shadowBlur  = 18;
-      ctx2d.shadowColor = glowA;
-      ctx2d.strokeStyle = colorA;
-      ctx2d.lineWidth   = pass === 0 ? 2 : 1.5;
-      ctx2d.globalAlpha = pass === 0 ? 1 : 0.7;
-
-      ctx2d.beginPath();
-      for (let i = 0; i < len; i++) {
-        const angle = (i / len) * Math.PI * 2 + offset;
-        const sample = (waveData[i] / 128.0 - 1.0);   // -1 a 1
-        const r = baseR + sample * 40 * (1 + amplitude * 2);
-        const x = CX + Math.cos(angle) * r;
-        const y = CY + Math.sin(angle) * r;
-        if (i === 0) ctx2d.moveTo(x, y);
-        else         ctx2d.lineTo(x, y);
-      }
-      ctx2d.closePath();
-      ctx2d.stroke();
-    }
-
-    ctx2d.globalAlpha = 1;
-    ctx2d.shadowBlur  = 0;
-
-    /* ── 2. Barras de frecuencia radiales (exterior) ── */
-    const numBars = 64;
-    const step    = Math.floor(freqData.length / numBars);
-
-    for (let i = 0; i < numBars; i++) {
+    // Energía por banda (mapea al eje X)
+    const bands = 32;
+    const step  = Math.max(1, Math.floor(freq.length / bands));
+    const energy = new Float32Array(bands);
+    for (let b = 0; b < bands; b++) {
       let sum = 0;
-      for (let k = 0; k < step; k++) sum += freqData[i * step + k];
-      const val   = sum / step / 255;
-      const angle = (i / numBars) * Math.PI * 2 - Math.PI / 2;
-      const r1    = baseR + 8;
-      const r2    = r1 + val * 55 * (1 + amplitude);
-
-      const t     = i / numBars;
-      // Interpolación de color entre teal y morado
-      const r_c   = Math.round(78  + (162 - 78)  * t);
-      const g_c   = Math.round(205 + (155 - 205) * t);
-      const b_c   = Math.round(196 + (254 - 196) * t);
-      const color = `rgba(${r_c},${g_c},${b_c},0.85)`;
-
-      ctx2d.shadowBlur  = 8;
-      ctx2d.shadowColor = color;
-      ctx2d.strokeStyle = color;
-      ctx2d.lineWidth   = 2;
-
-      ctx2d.beginPath();
-      ctx2d.moveTo(CX + Math.cos(angle) * r1, CY + Math.sin(angle) * r1);
-      ctx2d.lineTo(CX + Math.cos(angle) * r2, CY + Math.sin(angle) * r2);
-      ctx2d.stroke();
+      for (let k = 0; k < step; k++) sum += freq[b * step + k] || 0;
+      energy[b] = sum / step / 255;
     }
 
-    ctx2d.shadowBlur = 0;
-
-    /* ── 3. Círculo central pulsante ── */
-    const pulseR = (baseR * 0.28) + amplitude * 20;
-    const grad   = ctx2d.createRadialGradient(CX, CY, 0, CX, CY, pulseR);
-    grad.addColorStop(0, 'rgba(162,155,254,0.9)');
-    grad.addColorStop(1, 'rgba(78,205,196,0.0)');
-
-    ctx2d.shadowBlur  = 20;
-    ctx2d.shadowColor = colors.glow2;
-    ctx2d.fillStyle   = grad;
-    ctx2d.beginPath();
-    ctx2d.arc(CX, CY, pulseR, 0, Math.PI * 2);
-    ctx2d.fill();
-    ctx2d.shadowBlur = 0;
-
-    /* ── 4. Partículas flotantes ── */
     this.particles.forEach(p => {
-      p.x += p.vx + Math.sin(tick * 0.02 + p.y * 0.01) * 0.3;
-      p.y += p.vy - amplitude * 1.5;
-      p.alpha += 0.005;
+      // Banda de frecuencia según posición X
+      const bin    = Math.floor((p.x / W) * bands);
+      const e      = energy[Math.min(bin, bands - 1)];
+      p.bright     = e;
+      p.freqBin    = bin;
 
-      if (p.y < -10 || p.alpha > 1.2) {
-        p.x     = Math.random() * W;
-        p.y     = H + 5;
-        p.alpha = 0;
+      // La frecuencia acelera la caída y aumenta el tamaño
+      const speedBoost = 1 + e * 3.5 * (1 + amplitude * 2);
+      p.vy = (p.vy * 0.85) + ((Math.random() * 1.2 + 0.4) * speedBoost * 0.15);
+
+      // Oscilación horizontal suave
+      p.vx += Math.sin(t + p.y * 0.04) * 0.04;
+      p.vx *= 0.96;
+
+      p.x += p.vx;
+      p.y += p.vy;
+
+      // Tamaño pulsante con la frecuencia
+     p.r = p.baseR + e * 10 * (1 + amplitude * 2.5);
+
+      // Reciclar partícula cuando sale por abajo
+      if (p.y > H + 10 || p.x < -10 || p.x > W + 10) {
+        // Renace arriba en posición X aleatoria
+        const fresh = this._newParticle();
+        p.x      = fresh.x;
+        p.y      = -fresh.r;
+        p.vx     = fresh.vx;
+        p.vy     = fresh.vy;
+        p.r      = fresh.r;
+        p.baseR  = fresh.baseR;
+        p.alpha  = fresh.alpha;
+        p.hue    = fresh.hue;
+        p.bright = 0;
+      }
+    });
+  }
+
+  _drawParticles(masterAlpha) {
+    const { ctx2d, canvas } = this;
+    const W = canvas.width, H = canvas.height;
+
+    ctx2d.clearRect(0, 0, W, H);
+    const glow = ctx2d.createRadialGradient(
+  W / 2,
+  H / 2,
+  10,
+  W / 2,
+  H / 2,
+  W
+);
+
+glow.addColorStop(0,'rgba(100,200,255,0.25)');
+glow.addColorStop(1,'rgba(0,0,0,0)');
+
+ctx2d.fillStyle = glow;
+ctx2d.fillRect(0,0,W,H);
+const overlay = ctx2d.createLinearGradient(
+  0,
+  0,
+  0,
+  H
+);
+
+overlay.addColorStop(0,'rgba(80,180,255,0.20)');
+overlay.addColorStop(0.5,'rgba(80,180,255,0.12)');
+overlay.addColorStop(1,'rgba(0,0,0,0)');
+
+overlay.addColorStop(0,'rgba(80,180,255,0.15)');
+overlay.addColorStop(1,'rgba(0,0,0,0)');
+
+ctx2d.fillStyle = overlay;
+ctx2d.fillRect(0,0,W,H);
+
+    this.particles.forEach(p => {
+      const b = p.bright;
+      const r = Math.max(0.5, p.r);
+
+      // Color: azul oscuro → azul eléctrico → blanco
+      let R, G, B, a;
+      if (b < 0.25) {
+        const t = b / 0.25;
+        R = Math.round(10  + t * 30);
+        G = Math.round(50  + t * 100);
+        B = Math.round(160 + t * 80);
+        a = (0.25 + t * 0.4) * p.alpha;
+      } else if (b < 0.6) {
+        const t = (b - 0.25) / 0.35;
+        R = Math.round(40  + t * 110);
+        G = Math.round(150 + t * 80);
+        B = 240;
+        a = (0.65 + t * 0.25) * p.alpha;
+      } else {
+        const t = (b - 0.6) / 0.4;
+        R = Math.round(150 + t * 105);
+        G = Math.round(230 + t * 25);
+        B = 255;
+        a = 0.9 * p.alpha;
       }
 
-      ctx2d.globalAlpha = Math.min(p.alpha, 1) * 0.75;
-      ctx2d.fillStyle   = p.color;
-      ctx2d.shadowBlur  = 6;
-      ctx2d.shadowColor = p.color;
+      // Glow en partículas activas
+      if (b > 0.2) {
+        ctx2d.shadowBlur  = r * 4;
+        ctx2d.shadowColor = `hsla(${p.hue}, 90%, 65%, ${b * 0.7})`;
+      } else {
+        ctx2d.shadowBlur = 0;
+      }
+
+      ctx2d.globalAlpha = Math.min(a *2* masterAlpha, 1);
+      ctx2d.fillStyle   = `rgb(${R},${G},${B})`;
       ctx2d.beginPath();
-      ctx2d.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx2d.arc(p.x, p.y, r, 0, Math.PI * 2);
       ctx2d.fill();
     });
 

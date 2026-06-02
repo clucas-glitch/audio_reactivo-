@@ -139,7 +139,7 @@ html, body {
 }
 
 /* Cuando está reproduciendo: portada se oscurece para ver el visualizador */
-.card.playing .card-art   { opacity: 0.18; }
+.card.playing .card-art   { opacity: 0.35; }
 .card.playing .card-canvas { opacity: 1; }
 .card.playing .hold-hint  { opacity: 0 !important; pointer-events: none; }
 
@@ -170,7 +170,8 @@ html, body {
   width: 100% !important; height: 100% !important;
   opacity: 0;
   transition: opacity 0.3s ease;
-  z-index: 2;
+  z-index: 3;
+  mix-blend-mode: screen;
 }
 
 /* Degradé inferior */
@@ -434,4 +435,47 @@ body.theme-leon { --bg-c1: #0d3b47; --bg-c2: #2d1b69; --accent: #4ecdc4; }
 @keyframes fadeSlideUpSimple {
   from { opacity: 0; transform: translateY(24px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+ .progress-wrap{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  width:100%;
+}
+
+.progress-wrap span{
+  font-size:11px;
+  color:rgba(255,255,255,.6);
+  min-width:36px;
+}
+#progress-slider{
+  flex:1;
+  appearance:none;
+  height:6px;
+  border-radius:999px;
+  background:rgba(255,255,255,.22);
+  cursor:pointer;
+}
+
+#progress-slider::-webkit-slider-thumb{
+  appearance:none;
+  width:16px;
+  height:16px;
+  border-radius:50%;
+  background:#fff;
+  border:none;
+  cursor:pointer;
+  box-shadow:0 0 12px rgba(255,255,255,.5);
+}
+
+@media (pointer: coarse){
+
+  .card-canvas{
+    opacity:1 !important;
+  }
+
+  .card.playing .card-art{
+    opacity:.25;
+  }
+
 }

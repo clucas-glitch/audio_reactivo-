@@ -1,11 +1,11 @@
 /**
- * main.js v2
- * - Respuesta INMEDIATA al hover/touch (sin delay)
- * - Visualizador en el FONDO también
- * - Iconos SVG en play/pause
+ * main.js v4
+ * - Botón play/pause funciona correctamente (sin conflicto con Navigator)
+ * - Visualizadores y fondo se detienen/reanudan con pausa y cambio de canción
+ * - Fondo KISS: fuego rojo/negro
+ * - Fondo LEÓN: partículas azules que caen
  */
 
-/* ── Metadata de canciones ── */
 const SONGS = [
   {
     index:     0,
@@ -27,26 +27,37 @@ const SONGS = [
   },
 ];
 
-/* ── Instancias globales ── */
 const engine      = new AudioEngine();
 let   appNavigator = null;
 const visualizers  = [];
+let   bgCanvas, bgCtx, bgViz = null;
 
-/* ── Canvas de FONDO ── */
-let bgCanvas, bgCtx, bgViz = null;
+/* ══════════════════════════════════════════════
+   ICONO PLAY / PAUSE
+   ══════════════════════════════════════════════ */
+function updatePlayIcon(playing) {
+  const btn = document.getElementById('btn-play');
+  if (!btn) return;
+  btn.querySelector('.icon-play').style.display  = playing ? 'none'  : 'block';
+  btn.querySelector('.icon-pause').style.display = playing ? 'block' : 'none';
+}
 
-/* ══════════════════════════════════════
-   VISUALIZADOR DE FONDO
-   Versión simplificada que dibuja el mismo
-   efecto pero grande, oscuro y difuminado
-   ══════════════════════════════════════ */
-function createBgVisualizer(type) {
-  const W = bgCanvas.width  = window.innerWidth;
-  const H = bgCanvas.height = window.innerHeight;
+/* ══════════════════════════════════════════════
+   FONDO — FUEGO (KISS)
+   ══════════════════════════════════════════════ */
+function createBgFire() {
+  bgCanvas.width  = window.innerWidth;
+  bgCanvas.height = window.innerHeight;
+  const W = bgCanvas.width, H = bgCanvas.height;
 
-  let raf = null;
-  let running = false;
-  let tick = 0;
+  const COLS = 80, ROWS = 50;
+  const heat = [], targets = [];
+  for (let c = 0; c < COLS; c++) {
+    heat[c]    = new Float32Array(ROWS).fill(0);
+    targets[c] = 0;
+  }
+
+  let raf, running = false;
 
   function start() {
     running = true;
@@ -56,174 +67,314 @@ function createBgVisualizer(type) {
 
   function stop() {
     running = false;
-    bgCanvas.classList.remove('active');
     if (raf) cancelAnimationFrame(raf);
-    bgCtx.clearRect(0, 0, W, H);
+    // Fade out del fondo
+    let alpha = 0.28;
+    const fade = () => {
+      alpha -= 0.04;
+      if (alpha <= 0) {
+        bgCanvas.classList.remove('active');
+        bgCtx.clearRect(0, 0, W, H);
+        return;
+      }
+      bgCtx.globalAlpha = alpha / 0.28;
+      drawFrame();
+      bgCtx.globalAlpha = 1;
+      requestAnimationFrame(fade);
+    };
+    fade();
   }
 
   function loop() {
     if (!running) return;
-    tick++;
-    draw();
+    updateFrame();
+    drawFrame();
     raf = requestAnimationFrame(loop);
   }
 
-  function draw() {
-    bgCtx.clearRect(0, 0, W, H);
-
-    if (type === 'bars') drawBars();
-    else                 drawWave();
-  }
-
-  function drawBars() {
-    const freq      = engine.getFrequencies();
-    const numBars   = 80;
-    const step      = Math.floor(freq.length / numBars);
-    const barW      = W / numBars;
+  function updateFrame() {
+    const freq = engine.getFrequencies();
     const amplitude = engine.getAmplitude();
-
-    bgCtx.globalAlpha = 0.22;
-
-    for (let i = 0; i < numBars; i++) {
+    const step = Math.max(1, Math.floor(freq.length / COLS));
+    for (let c = 0; c < COLS; c++) {
       let sum = 0;
-      for (let k = 0; k < step; k++) sum += freq[i * step + k];
-      const val  = sum / step / 255;
-      const barH = val * H * 1.1;
-      const x    = i * barW;
-
-      const grad = bgCtx.createLinearGradient(x, H - barH, x, H);
-      grad.addColorStop(0, `rgba(255,60,60,${val * 0.9})`);
-      grad.addColorStop(1, 'rgba(100,0,0,0)');
-
-      bgCtx.fillStyle = grad;
-      bgCtx.fillRect(x, H - barH, barW - 1, barH);
+      for (let k = 0; k < step; k++) sum += freq[c * step + k] || 0;
+      const val = sum / step / 255;
+      targets[c] += (val * (0.95 + amplitude * 0.4) - targets[c]) * 0.35;
+      heat[c][ROWS - 1] = Math.min(1, targets[c] * 1.1);
     }
-
-    bgCtx.globalAlpha = 1;
+    for (let c = 0; c < COLS; c++) {
+      for (let r = 0; r < ROWS - 1; r++) {
+        const L = heat[Math.max(0, c-1)][r+1];
+        const M = heat[c][r+1];
+        const R = heat[Math.min(COLS-1, c+1)][r+1];
+        heat[c][r] = (L*0.27 + M*0.50 + R*0.23) * (0.965 - r*0.0018);
+      }
+    }
   }
 
-  function drawWave() {
-    const wave      = engine.getWaveform();
-    const freq      = engine.getFrequencies();
-    const amplitude = engine.getAmplitude();
-    const CX = W / 2, CY = H / 2;
-    const baseR = Math.min(W, H) * 0.32;
+  function heatColor(v) {
+    let r, g, b, a;
+    if (v < 0.20)      { const t=v/0.20;       r=Math.round(t*140);          g=0;                    b=0;               a=0.35+t*0.45; }
+    else if (v < 0.45) { const t=(v-0.20)/0.25; r=Math.round(140+t*115);     g=Math.round(t*18);     b=0;               a=0.80+t*0.12; }
+    else if (v < 0.70) { const t=(v-0.45)/0.25; r=255;                       g=Math.round(18+t*140); b=0;               a=0.92+t*0.05; }
+    else               { const t=(v-0.70)/0.30;  r=255;                       g=Math.round(158+t*97); b=Math.round(t*80);a=0.97; }
+    return `rgba(${r},${g},${b},${a})`;
+  }
 
-    bgCtx.globalAlpha = 0.18;
-
-    // Onda circular grande en el fondo
-    for (let pass = 0; pass < 2; pass++) {
-      const len = wave.length;
-      bgCtx.strokeStyle = pass === 0 ? '#4ecdc4' : '#a29bfe';
-      bgCtx.lineWidth   = pass === 0 ? 3 : 2;
-      bgCtx.shadowBlur  = 30;
-      bgCtx.shadowColor = pass === 0 ? '#4ecdc4' : '#a29bfe';
-
-      bgCtx.beginPath();
-      for (let i = 0; i < len; i++) {
-        const angle  = (i / len) * Math.PI * 2;
-        const sample = (wave[i] / 128.0 - 1.0);
-        const r      = baseR + sample * 80 * (1 + amplitude * 3);
-        const x      = CX + Math.cos(angle) * r;
-        const y      = CY + Math.sin(angle) * r;
-        i === 0 ? bgCtx.moveTo(x, y) : bgCtx.lineTo(x, y);
+  function drawFrame() {
+    bgCtx.clearRect(0, 0, W, H);
+    const cellW = W/COLS, cellH = H/ROWS;
+    bgCtx.globalAlpha = 0.26;
+    for (let c = 0; c < COLS; c++) {
+      for (let r = 0; r < ROWS; r++) {
+        const v = Math.min(1, heat[c][r]);
+        if (v < 0.015) continue;
+        bgCtx.fillStyle = heatColor(v);
+        bgCtx.fillRect(Math.floor(c*cellW), Math.floor(r*cellH), Math.ceil(cellW)+1, Math.ceil(cellH)+1);
       }
-      bgCtx.closePath();
-      bgCtx.stroke();
     }
-
-    bgCtx.shadowBlur  = 0;
     bgCtx.globalAlpha = 1;
+    // Funde parte superior
+    const g = bgCtx.createLinearGradient(0,0,0,H*0.45);
+    g.addColorStop(0, 'rgba(0,0,0,0.9)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    bgCtx.fillStyle = g;
+    bgCtx.fillRect(0, 0, W, H*0.45);
   }
 
   return { start, stop };
 }
 
-/* ══════════════════════════════════════
-   ACTUALIZAR ÍCONO PLAY / PAUSE
-   ══════════════════════════════════════ */
-function updatePlayIcon(playing) {
-  const btnPlay   = document.getElementById('btn-play');
-  const iconPlay  = btnPlay.querySelector('.icon-play');
-  const iconPause = btnPlay.querySelector('.icon-pause');
-  if (playing) {
-    iconPlay.style.display  = 'none';
-    iconPause.style.display = 'block';
-  } else {
-    iconPlay.style.display  = 'block';
-    iconPause.style.display = 'none';
+/* ══════════════════════════════════════════════
+   FONDO — PARTÍCULAS QUE CAEN (LEÓN)
+   ══════════════════════════════════════════════ */
+function createBgDots() {
+  bgCanvas.width  = window.innerWidth;
+  bgCanvas.height = window.innerHeight;
+  const W = bgCanvas.width, H = bgCanvas.height;
+
+  const NUM = 200;
+  const particles = [];
+
+  function newParticle(startY) {
+    return {
+      x:      Math.random() * W,
+      y:      startY !== undefined ? startY : -Math.random() * H,
+      vx:     (Math.random() - 0.5) * 0.5,
+      vy:     Math.random() * 1.0 + 0.3,
+      r:      Math.random() * 3 + 1,
+      baseR:  Math.random() * 3 + 1,
+      alpha:  Math.random() * 0.5 + 0.3,
+      bright: 0,
+      hue:    195 + Math.random() * 35,
+    };
   }
+
+  for (let i = 0; i < NUM; i++)
+    particles.push(newParticle(-Math.random() * H));
+
+  let raf, running = false, tick = 0, masterAlpha = 1;
+
+  function start() {
+    running = true;
+    masterAlpha = 1;
+    bgCanvas.classList.add('active');
+    loop();
+  }
+
+  function stop() {
+    running = false;
+    if (raf) cancelAnimationFrame(raf);
+    // Fade out
+    const fade = () => {
+      masterAlpha -= 0.06;
+      if (masterAlpha <= 0) {
+        bgCanvas.classList.remove('active');
+        bgCtx.clearRect(0, 0, W, H);
+        return;
+      }
+      drawFrame(masterAlpha);
+      requestAnimationFrame(fade);
+    };
+    fade();
+  }
+
+  function loop() {
+    if (!running) return;
+    tick++;
+    updateParticles();
+    drawFrame(1);
+    raf = requestAnimationFrame(loop);
+  }
+
+  function updateParticles() {
+    const freq      = engine.getFrequencies();
+    const amplitude = engine.getAmplitude();
+    const t         = tick * 0.018;
+    const bands     = 32;
+    const step      = Math.max(1, Math.floor(freq.length / bands));
+    const energy    = new Float32Array(bands);
+    for (let b = 0; b < bands; b++) {
+      let sum = 0;
+      for (let k = 0; k < step; k++) sum += freq[b*step+k] || 0;
+      energy[b] = sum / step / 255;
+    }
+
+    particles.forEach(p => {
+      const bin = Math.min(Math.floor((p.x / W) * bands), bands-1);
+      const e   = energy[bin];
+      p.bright  = e;
+
+      const speedBoost = 1 + e * 4 * (1 + amplitude * 2);
+      p.vy = p.vy * 0.88 + (Math.random() * 1.0 + 0.3) * speedBoost * 0.12;
+      p.vx += Math.sin(t + p.y * 0.04) * 0.035;
+      p.vx *= 0.97;
+      p.x  += p.vx;
+      p.y  += p.vy;
+      p.r   = p.baseR + e * 5 * (1 + amplitude * 1.5);
+
+      if (p.y > H + 10 || p.x < -10 || p.x > W + 10) {
+        const fresh = newParticle();
+        Object.assign(p, fresh);
+      }
+    });
+  }
+
+  function drawFrame(master) {
+    bgCtx.clearRect(0, 0, W, H);
+    particles.forEach(p => {
+      const b = p.bright;
+      const r = Math.max(0.5, p.r);
+      let R, G, B, a;
+      if (b < 0.25)      { const t=b/0.25;           R=10+t*30;   G=50+t*100;  B=160+t*80; a=(0.2+t*0.35)*p.alpha; }
+      else if (b < 0.6)  { const t=(b-0.25)/0.35;    R=40+t*110;  G=150+t*80;  B=240;      a=(0.55+t*0.3)*p.alpha; }
+      else               { const t=(b-0.6)/0.4;       R=150+t*105; G=230+t*25;  B=255;      a=0.85*p.alpha; }
+
+      if (b > 0.2) { bgCtx.shadowBlur = r*3; bgCtx.shadowColor = `hsla(${p.hue},90%,65%,${b*0.5})`; }
+      else bgCtx.shadowBlur = 0;
+
+      bgCtx.globalAlpha = Math.min((a || 0.1) * master, 1);
+      bgCtx.fillStyle   = `rgb(${Math.round(R)},${Math.round(G)},${Math.round(B)})`;
+      bgCtx.beginPath();
+      bgCtx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      bgCtx.fill();
+    });
+    bgCtx.globalAlpha = 1;
+    bgCtx.shadowBlur  = 0;
+  }
+
+  return { start, stop };
 }
 
-/* ══════════════════════════════════════
+/* ══════════════════════════════════════════════
+   ARRANCAR / DETENER VISUALIZADORES
+   ══════════════════════════════════════════════ */
+function startAll(index) {
+  visualizers.forEach(v => v && v.stop());
+  if (bgViz) { bgViz.stop(); bgViz = null; }
+
+  const cardViz = visualizers[index];
+  if (cardViz) cardViz.start();
+
+  bgViz = SONGS[index].visualizer === 'bars' ? createBgFire() : createBgDots();
+  bgViz.start();
+
+  // Marcar tarjeta como playing
+  document.querySelectorAll('.card').forEach((c, i) =>
+    c.classList.toggle('playing', i === index)
+  );
+
+  updatePlayIcon(true);
+}
+
+function stopAll(index) {
+  const cardViz = visualizers[index];
+  if (cardViz) cardViz.stop();
+  if (bgViz)   { bgViz.stop(); bgViz = null; }
+
+  document.querySelectorAll('.card')[index]?.classList.remove('playing');
+  updatePlayIcon(false);
+}
+
+/* ══════════════════════════════════════════════
    INIT
-   ══════════════════════════════════════ */
-async function init() {
+   ══════════════════════════════════════════════ */
+const progressSlider = document.getElementById('progress-slider');
+const currentTimeEl  = document.getElementById('current-time');
+const durationTimeEl = document.getElementById('duration-time');
+
+function formatTime(sec) {
+  if (!isFinite(sec)) return '0:00';
+
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+
+  return `${m}:${String(s).padStart(2, '0')}`;
+} function updateProgressUI() {
+  const progress = engine.getProgress();
+
+  progressSlider.value = progress * 100;
+
+  currentTimeEl.textContent =
+    formatTime(engine.getCurrentTime());
+
+  durationTimeEl.textContent =
+    formatTime(engine.getDuration());
+
+  requestAnimationFrame(updateProgressUI);
+}
+
+updateProgressUI();
+   async function init() {
   bgCanvas = document.getElementById('bg-canvas');
   bgCtx    = bgCanvas.getContext('2d');
 
-  // 1. Navigator
+  // 1. Navigator (sin listeners de play — los maneja main.js)
   appNavigator = new Navigator(SONGS, engine);
 
   // 2. Visualizadores de tarjeta
   SONGS.forEach((song, i) => {
     const canvas = document.getElementById(`canvas-${i}`);
-    let viz;
-    if (song.visualizer === 'bars') viz = new BarsVisualizer(canvas, engine);
-    else                             viz = new WaveVisualizer(canvas, engine);
-    visualizers.push(viz);
+    visualizers.push(
+      song.visualizer === 'bars'
+        ? new BarsVisualizer(canvas, engine)
+        : new WaveVisualizer(canvas, engine)
+    );
   });
+  progressSlider.addEventListener('input', () => {
+  engine.seek(progressSlider.value / 100);
+});
 
   // 3. Cargar primera canción
   const ok = await engine.load(SONGS[0].audio);
-  if (!ok) console.warn('[main] No se pudo cargar kiss.mp3 — verifica la carpeta audio/');
+  if (!ok) console.warn('[main] No se pudo cargar kiss.mp3 — verifica audio/');
 
-  // 4. Tarjeta inicial activa
+  // 4. Tarjeta inicial
   document.querySelectorAll('.card')[0].classList.add('active');
 
-  // 5. Cambio de canción → recrear visualizador de fondo
-  appNavigator.onChange((index) => {
-    visualizers.forEach(v => v && v.stop());
-    if (bgViz) bgViz.stop();
-    bgViz = null;
-  });
-
-  // 6. ON PLAY → arrancar visualizadores + fondo INMEDIATO
-  engine.onPlay = () => {
-    // Tarjeta
-    visualizers.forEach(v => v && v.stop());
-    const cardViz = visualizers[appNavigator.current];
-    if (cardViz) cardViz.start();
-
-    // Fondo
-    if (bgViz) bgViz.stop();
-    bgViz = createBgVisualizer(SONGS[appNavigator.current].visualizer);
-    bgViz.start();
-
-    // Icono
-    updatePlayIcon(true);
+  // 5. Callbacks del engine
+  engine.onPlay  = () => startAll(appNavigator.current);
+  engine.onPause = () => stopAll(appNavigator.current);
+  engine.onEnd   = () => {
+    stopAll(appNavigator.current);
+    setTimeout(() => appNavigator.next(), 800);
   };
 
-  // 7. ON PAUSE → detener todo
-  engine.onPause = () => {
-    const cardViz = visualizers[appNavigator.current];
-    if (cardViz) cardViz.stop();
-    if (bgViz)   bgViz.stop();
+  // 6. Cuando cambia canción: detener todo
+  appNavigator.onChange(index => {
+    visualizers.forEach(v => v && v.stop());
+    if (bgViz) { bgViz.stop(); bgViz = null; }
     updatePlayIcon(false);
-  };
-
-  // 8. Resize
-  window.addEventListener('resize', () => {
-    if (bgCanvas) {
-      bgCanvas.width  = window.innerWidth;
-      bgCanvas.height = window.innerHeight;
-    }
-    visualizers.forEach(v => v && v._resize && v._resize());
   });
 
-  /* ── HOLD INMEDIATO en tarjetas ──
-     El audio arranca en cuanto el usuario
-     pone el dedo/mouse. Sin delay.         */
+  /* ── BOTÓN PLAY/PAUSE (único listener aquí) ── */
+  document.getElementById('btn-play').addEventListener('click', () => {
+    engine.toggle();
+    // engine.onPlay / engine.onPause se disparan automáticamente
+  });
+
+  /* ── HOLD en tarjetas — respuesta inmediata ── */
   document.querySelectorAll('.card').forEach((card, i) => {
     let holdTimer = null;
 
@@ -234,48 +385,45 @@ async function init() {
       }
       e.preventDefault();
       card.classList.add('touch-hold', 'holding');
-
-      // Arrancar inmediatamente (0 ms de delay)
       holdTimer = setTimeout(() => {
         if (!engine.isLoaded) return;
-        engine.play();
-        card.classList.add('playing');
+        engine.play();  // dispara engine.onPlay → startAll()
       }, 0);
     };
 
     const onEnd = () => {
       card.classList.remove('touch-hold', 'holding');
       clearTimeout(holdTimer);
-      // En táctil: soltar pausa
+      // En táctil: soltar = pausa
       if (window.matchMedia('(pointer:coarse)').matches) {
-        engine.pause();
-        card.classList.remove('playing');
+        engine.pause();  // dispara engine.onPause → stopAll()
       }
     };
 
-    card.addEventListener('mousedown',  onStart);
-    card.addEventListener('mouseup',    onEnd);
-    card.addEventListener('mouseleave', onEnd);
-    card.addEventListener('touchstart', onStart, { passive: false });
-    card.addEventListener('touchend',   onEnd);
-    card.addEventListener('touchcancel',onEnd);
+    card.addEventListener('mousedown',   onStart);
+    card.addEventListener('mouseup',     onEnd);
+    card.addEventListener('mouseleave',  onEnd);
+    card.addEventListener('touchstart',  onStart, { passive: false });
+    card.addEventListener('touchend',    onEnd);
+    card.addEventListener('touchcancel', onEnd);
   });
 
-  // Botón play de la barra también actualiza clase .playing en la tarjeta
-  const btnPlay = document.getElementById('btn-play');
-  btnPlay.addEventListener('click', () => {
-    engine.toggle();
-    const card = document.querySelectorAll('.card')[appNavigator.current];
-    card.classList.toggle('playing', engine.isPlaying);
+  /* ── Teclado ── */
+  document.addEventListener('keydown', (e) => {
+    if (e.key === ' ') {
+      e.preventDefault();
+      engine.toggle();
+    }
   });
 
-  engine.onEnd = () => {
-    document.querySelectorAll('.card')[appNavigator.current].classList.remove('playing');
-    updatePlayIcon(false);
-    setTimeout(() => appNavigator.next(), 800);
-  };
+  /* ── Resize ── */
+  window.addEventListener('resize', () => {
+    bgCanvas.width  = window.innerWidth;
+    bgCanvas.height = window.innerHeight;
+    visualizers.forEach(v => v && v._resize && v._resize());
+  });
 
-  console.log('[main] ✓ Audio Reactor v2 listo');
+  console.log('[main] ✓ Audio Reactor v4 listo');
 }
 
 document.addEventListener('DOMContentLoaded', init);

@@ -144,9 +144,48 @@ class AudioEngine {
   }
 
   /* ── Progreso de reproducción (0–1) ── */
-  getProgress() {
-    if (!this.buffer || !this.ctx) return 0;
-    if (!this.isPlaying) return this.pauseOffset / this.buffer.duration;
-    return (this.ctx.currentTime - this.startTime) / this.buffer.duration;
+getProgress() {
+  if (!this.buffer || !this.ctx) return 0;
+  if (!this.isPlaying) return this.pauseOffset / this.buffer.duration;
+  return (this.ctx.currentTime - this.startTime) / this.buffer.duration;
+}
+
+/* ── Duración total ── */
+getDuration() {
+  return this.buffer ? this.buffer.duration : 0;
+}
+
+/* ── Tiempo actual ── */
+getCurrentTime() {
+  if (!this.buffer || !this.ctx) return 0;
+
+  if (this.isPlaying) {
+    return this.ctx.currentTime - this.startTime;
   }
+
+  return this.pauseOffset;
+}
+
+/* ── Adelantar / Retroceder ── */
+seek(progress) {
+
+  if (!this.buffer) return;
+
+  progress = Math.max(0, Math.min(1, progress));
+
+  const newTime = this.buffer.duration * progress;
+
+  const wasPlaying = this.isPlaying;
+
+  if (wasPlaying) {
+    this.pause();
+  }
+
+  this.pauseOffset = newTime;
+
+  if (wasPlaying) {
+    this.play();
+  }
+}
+
 }
